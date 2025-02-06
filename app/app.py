@@ -1,6 +1,7 @@
 from flask import Flask, request, jsonify
 from flask_sqlalchemy import SQLAlchemy
 import os
+import requests
 
 app = Flask(__name__)
 
@@ -37,16 +38,32 @@ class Orden(db.Model):
     Estado = db.Column(db.Enum("Pendiente", "Confirmada", "Cancelada"), default="Pendiente")
 
 
-@app.route("/orders", methods=["POST"])
+# Función para validar si el cliente existe
+def read_customer(customer_id):
+    url = f"http://54.84.180.78:5000/get_customer/{customer_id}"
+    response = requests.get(url)
+
+    if response.status_code == 200:
+        return response.json()
+    else:
+        return None  # Cliente no encontrado
+
+# Ruta para crear una orden
+@app.route('/orders', methods=['POST'])
 def create_order():
     try:
         data = request.get_json()
 
-        # Validar que todos los campos obligatorios estén presentes
+        # Validar que la solicitud contiene los datos necesarios
         required_fields = ["ID_Cliente", "ID_Restaurante", "Fecha", "Hora", "Numero_Personas"]
         for field in required_fields:
             if field not in data:
-                return jsonify({"error": f"El campo '{field}' es obligatorio"}), 400
+                return jsonify({"error": f"Falta el campo requerido: {field}"}), 400
+
+        # Validar si el cliente existe
+        customer = read_customer(data["ID_Cliente"])
+        if not customer:
+            return jsonify({"error": "El cliente no existe"}), 404
 
         # Crear nueva orden
         new_order = Orden(
@@ -55,7 +72,7 @@ def create_order():
             Fecha=data["Fecha"],
             Hora=data["Hora"],
             Numero_Personas=data["Numero_Personas"],
-            Estado=data.get("Estado", "Pendiente")  # Si no envían Estado, se pone 'Pendiente'
+            Estado=data.get("Estado", "Pendiente")
         )
 
         db.session.add(new_order)
@@ -64,7 +81,6 @@ def create_order():
         return jsonify({"message": "Orden creada exitosamente", "order_id": new_order.ID_Orden}), 201
 
     except Exception as e:
-        db.session.rollback()
         return jsonify({"error": str(e)}), 500
 
 
